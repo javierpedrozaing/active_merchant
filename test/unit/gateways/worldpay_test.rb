@@ -9,6 +9,17 @@ class WorldpayTest < Test::Unit::TestCase
       password: 'testpassword'
     )
 
+    @bank_account = check({
+      first_name: "John",
+      last_name: "Johnson",
+      routing_number: '021000021',
+      account_number: '9876543210',
+      address1: "Cra 15 # 3",
+      postal_code: "4535",
+      city: "Ottawa",
+      country_code: "CA"
+    })
+
     @amount = 100
     @credit_card = credit_card('4242424242424242')
     @token = '|99411111780163871111|shopper|59424549c291397379f30c5c082dbed8'
@@ -59,6 +70,53 @@ class WorldpayTest < Test::Unit::TestCase
       source: :google_pay,
       transaction_id: '123456789',
       eci: '05')
+  end
+
+  def test_successful_authorize_with_bank_account
+    response = stub_comms do
+      @gateway.authorize(@amount, @bank_account, @options)
+    end.check_request do |_endpoint, data, _headers|
+      require "debug"
+      assert_match(%r(<ACH_DIRECT_DEBIT-SSL>), data)
+      assert_match(%r(<routingNumber>021000021</routingNumber>), data)
+    end.respond_with(successful_authorize_response_with_bank_account)
+    assert_success response
+    assert_equal 'R50704213207145707', response.authorization
+  end
+
+  def test_successful_authorize_with_bank_account_corporate
+    @bank_account.account_type="corporate"
+    @bank_account.company_name="testCompany"
+    response = stub_comms do
+      @gateway.authorize(@amount, @bank_account, @options)
+    end.check_request do |_endpoint, data, _headers|
+      assert_match(%r(<ACH_DIRECT_DEBIT-SSL>), data)
+      assert_match(%r(<companyName>), data)
+    end.respond_with(successful_authorize_response_with_bank_account)
+    assert_success response
+    assert_equal 'R50704213207145707', response.authorization
+  end
+
+  def test_successful_purchase_with_bank_account
+    response = stub_comms do
+      @gateway.purchase(@amount, @bank_account, @options)
+    end.respond_with(successful_authorize_response, successful_capture_response)
+    assert_success response
+    assert_equal '33955f6bb4524813b51836de76228983', response.authorization
+    assert response.test?
+  end
+
+  def test_successful_verify_with_bank_account
+    response = stub_comms do
+      @gateway.verify(@bank_account, @options)
+    end.respond_with(successful_authorize_response)
+    assert_success response
+    assert_equal 'R50704213207145707', response.authorization
+  end
+
+  def test_scrub_bank_account
+    assert @gateway.supports_scrubbing
+    assert_equal @gateway.scrub(pre_scrubbed_bank_account), post_scrubbed_bank_account
   end
 
   def test_successful_authorize
@@ -1318,6 +1376,90 @@ class WorldpayTest < Test::Unit::TestCase
         }
       }
     }
+  end
+
+  def pre_scrubbed_bank_account
+    <<~RESPONSE
+      <?xml version="1.0" encoding="UTF-8"?>
+      <!DOCTYPE paymentService PUBLIC "-//WorldPay//DTD WorldPay PaymentService v1//EN" "http://dtd.worldpay.com/paymentService_v1.dtd">
+      <paymentService version="1.4" merchantCode="testlogin">
+        <submit>
+          <order orderCode="1">
+            <description>Purchase</description>
+            <amount value="100" currencyCode="GBP" exponent="2"/>
+            <paymentDetails>
+              <ACH_DIRECT_DEBIT-SSL>
+                <echeckSale>
+                  <billingAddress>
+                    <address>
+                      <firstName>John</firstName>
+                      <lastName>Johnson</lastName>
+                      <address1>Cra 15 # 3</address1>
+                      <postalCode>4535</postalCode>
+                      <city>Ottawa</city>
+                      <countryCode>CA</countryCode>
+                    </address>
+                  </billingAddress>
+                  <bankAccountType>checking</bankAccountType>
+                  <accountNumber>9876543210</accountNumber>
+                  <routingNumber>021000021</routingNumber>
+                  <checkNumber>1</checkNumber>
+                </echeckSale>
+              </ACH_DIRECT_DEBIT-SSL>
+            </paymentDetails>
+          </order>
+        </submit>
+      </paymentService>
+    RESPONSE
+  end
+
+  def post_scrubbed_bank_account
+    <<~RESPONSE
+      <?xml version="1.0" encoding="UTF-8"?>
+      <!DOCTYPE paymentService PUBLIC "-//WorldPay//DTD WorldPay PaymentService v1//EN" "http://dtd.worldpay.com/paymentService_v1.dtd">
+      <paymentService version="1.4" merchantCode="testlogin">
+        <submit>
+          <order orderCode="1">
+            <description>Purchase</description>
+            <amount value="100" currencyCode="GBP" exponent="2"/>
+            <paymentDetails>
+              <ACH_DIRECT_DEBIT-SSL>
+                <echeckSale>
+                  <billingAddress>
+                    <address>[FILTERED] 
+                  </billingAddress>
+                  <bankAccountType>checking</bankAccountType>
+                  <accountNumber>[FILTERED]</accountNumber>
+                  <routingNumber>[FILTERED]</routingNumber>
+                  <checkNumber>1</checkNumber>
+                </echeckSale>
+              </ACH_DIRECT_DEBIT-SSL>
+            </paymentDetails>
+          </order>
+        </submit>
+      </paymentService>
+    RESPONSE
+  end
+
+  def successful_authorize_response_with_bank_account
+    <<~RESPONSE
+      <?xml version="1.0" encoding="UTF-8"?>
+      <!DOCTYPE paymentService PUBLIC "-//WorldPay//DTD WorldPay PaymentService v1//EN" "http://dtd.worldpay.com/paymentService_v1.dtd">
+      <paymentService version="1.4" merchantCode="XXXXXXXXXXXXXXX">
+        <reply>
+          <orderStatus orderCode="R50704213207145707">
+            <payment>
+              <paymentMethod>ACH_DIRECT_DEBIT-SSL</paymentMethod>
+              <amount value="100" currencyCode="USD" exponent="2" debitCreditIndicator="credit"/>
+              <lastEvent>AUTHORISED</lastEvent>
+              <balance accountType="IN_PROCESS_AUTHORISED">
+                <amount value="100" currencyCode="USD" exponent="2" debitCreditIndicator="credit"/>
+              </balance>
+            </payment>
+          </orderStatus>
+        </reply>
+      </paymentService>
+    RESPONSE
   end
 
   def successful_authorize_response

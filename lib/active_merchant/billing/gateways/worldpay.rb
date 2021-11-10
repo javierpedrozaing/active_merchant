@@ -147,7 +147,10 @@ module ActiveMerchant #:nodoc:
           gsub(%r((<cardNumber>)\d+(</cardNumber>)), '\1[FILTERED]\2').
           gsub(%r((<cvc>)[^<]+(</cvc>)), '\1[FILTERED]\2').
           gsub(%r((<tokenNumber>)\d+(</tokenNumber>)), '\1[FILTERED]\2').
-          gsub(%r((<cryptogram>)[^<]+(</cryptogram>)), '\1[FILTERED]\2')
+          gsub(%r((<cryptogram>)[^<]+(</cryptogram>)), '\1[FILTERED]\2').
+          gsub(%r((<accountNumber>)\d+(</accountNumber>)), '\1[FILTERED]\2').
+          gsub(%r((<routingNumber>)\d+(</routingNumber>)), '\1[FILTERED]\2').
+          gsub(%r((<address>)((|\n).)+(</address>)), '\1[FILTERED]\2')
       end
 
       private
