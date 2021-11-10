@@ -8,7 +8,8 @@ module ActiveMerchant #:nodoc:
     class Check < Model
       attr_accessor :first_name, :last_name,
         :bank_name, :routing_number, :account_number,
-        :account_holder_type, :account_type, :number
+        :account_holder_type, :account_type, :number,
+        :company_name, :address1, :postal_code, :city, :country_code ## adding support to mandatory tags Worldpay Gateway
 
       # Used for Canadian bank accounts
       attr_accessor :institution_number, :transit_number

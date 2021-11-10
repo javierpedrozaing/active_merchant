@@ -423,6 +423,8 @@ module ActiveMerchant #:nodoc:
           end
         elsif options[:payment_type] == :network_token
           add_network_tokenization_card(xml, payment_method)
+        elsif options[:payment_type] == :bank_account
+          add_bank_account(xml, amount, payment_method, options)
         else
           xml.paymentDetails credit_fund_transfer_attribute(options) do
             if options[:payment_type] == :token
@@ -443,6 +445,32 @@ module ActiveMerchant #:nodoc:
             end
             if three_d_secure = options[:three_d_secure]
               add_three_d_secure(three_d_secure, xml)
+            end
+          end
+        end
+      end
+
+
+      def add_bank_account(xml, amount, payment_method, options)
+        xml.paymentDetails do
+          xml.tag! 'ACH_DIRECT_DEBIT-SSL' do
+            xml.echeckSale do
+              xml.billingAddress do
+                xml.address do
+                  xml.firstName payment_method.first_name
+                  xml.lastName payment_method.last_name
+                  xml.address1 payment_method.address1 if payment_method.respond_to?(:address1)
+                  xml.postalCode payment_method.postal_code if payment_method.respond_to?(:postal_code)
+                  xml.city payment_method.city if payment_method.respond_to?(:city)
+                  xml.countryCode payment_method.country_code if payment_method.respond_to?(:country_code)
+                end
+              end
+              xml.bankAccountType payment_method.account_type
+              xml.accountNumber payment_method.account_number
+              xml.routingNumber payment_method.routing_number
+              xml.companyName payment_method.company_name if payment_method.account_type == "corporate" #optional
+              xml.checkNumber  payment_method.number if payment_method.number  #optional
+              xml.customIdentifier payment_method.customIdentifier if payment_method.respond_to?(:custom_i) #optional
             end
           end
         end
@@ -783,6 +811,8 @@ module ActiveMerchant #:nodoc:
         payment_details = {}
         if payment_method.is_a?(NetworkTokenizationCreditCard) && %i{network_token apple_pay google_pay}.include?(payment_method.source)
           payment_details[:payment_type] = :network_token
+        elsif payment_method.respond_to?(:number) &&  payment_method.is_a?(Check)
+          payment_details[:payment_type] = :bank_account
         elsif payment_method.respond_to?(:number)
           payment_details[:payment_type] = :credit
         else
