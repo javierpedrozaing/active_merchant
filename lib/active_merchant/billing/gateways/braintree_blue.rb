@@ -617,7 +617,6 @@ module ActiveMerchant #:nodoc:
         add_account_type(parameters, options) if options[:account_type]
         add_skip_options(parameters, options)
         add_merchant_account_id(parameters, options)
-
         add_payment_method(parameters, credit_card_or_vault_id, options)
         add_stored_credential_data(parameters, credit_card_or_vault_id, options)
         add_addresses(parameters, options)
@@ -788,6 +787,8 @@ module ActiveMerchant #:nodoc:
           else
             parameters[:customer_id] = credit_card_or_vault_id
           end
+        elsif credit_card_or_vault_id.is_a?(Check)
+            add_bank_account(parameters, credit_card_or_vault_id, options)
         else
           parameters[:customer].merge!(
             first_name: credit_card_or_vault_id.first_name,
@@ -827,6 +828,44 @@ module ActiveMerchant #:nodoc:
           end
         end
       end
+
+      def add_bank_account(parameters, account, options)
+        account_data = {
+          first_name: account.first_name,
+          last_name: account.last_name,
+          email: scrub_email(options[:email]),
+          phone: options[:phone] || (options[:billing_address][:phone] if options[:billing_address] &&
+            options[:billing_address][:phone]),
+          device_data: options[:device_data],
+        }
+
+        get_customer =  @braintree_gateway.customer.create(account_data)
+
+        verify_bank_account(parameters, account, options.merge(customer_id: get_customer.customer.id))
+      end
+
+      def verify_bank_account(parameters, account, options)
+        if options[:payment_method_nonce]
+          ## valuting process
+          payment_method_nonce = get_payment_method_nonce(options[:customer_id], account)
+          result = @braintree_gateway.payment_method.create(
+            :customer_id => options[:customer_id],
+            :payment_method_nonce => options[:payment_method_nonce],
+            :options => {
+              :us_bank_account_verification_method => "network_check"  # or "micro_transfers" or "independent_check"
+            }
+          )
+        end
+      end
+
+      def get_payment_method_nonce(customer_id, account)
+        client_token = @braintree_gateway.client_token.generate(
+          :customer_id => customer_id
+        )
+        require "debug"
+        result = @braintree_gateway.payment_method_nonce.create(client_token)
+      end
+
     end
   end
 end
