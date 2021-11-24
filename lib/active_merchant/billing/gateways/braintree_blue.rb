@@ -847,7 +847,6 @@ module ActiveMerchant #:nodoc:
       def verify_bank_account(parameters, account, options)
         if options[:payment_method_nonce]
           ## valuting process
-          payment_method_nonce = get_payment_method_nonce(options[:customer_id], account)
           result = @braintree_gateway.payment_method.create(
             :customer_id => options[:customer_id],
             :payment_method_nonce => options[:payment_method_nonce],
@@ -857,15 +856,6 @@ module ActiveMerchant #:nodoc:
           )
         end
       end
-
-      def get_payment_method_nonce(customer_id, account)
-        client_token = @braintree_gateway.client_token.generate(
-          :customer_id => customer_id
-        )
-        require "debug"
-        result = @braintree_gateway.payment_method_nonce.create(client_token)
-      end
-
     end
   end
 end
