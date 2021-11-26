@@ -5,6 +5,7 @@ class RemoteBraintreeBlueTest < Test::Unit::TestCase
     @gateway = BraintreeGateway.new(fixtures(:braintree_blue))
     @braintree_backend = @gateway.instance_eval { @braintree_gateway }
 
+    @bank_account = check(account_number: '4012000033330125', routing_number: '011000015')
     @amount = 100
     @declined_amount = 2000_00
     @credit_card = credit_card('5105105105105100')
@@ -37,6 +38,34 @@ class RemoteBraintreeBlueTest < Test::Unit::TestCase
     assert_equal '1000 Approved', response.message
     assert_equal 'authorized', response.params['braintree_transaction']['status']
   end
+
+  def test_successful_authorize_with_bank_account
+    options = @options.merge(
+      payment_method_nonce: "fake-valid-debit-nonce",
+    )
+    assert response = @gateway.authorize(@amount, @bank_account, options)
+    assert_success response
+  end
+
+  def test_successful_authorize_with_store_bank_account
+    options = @options.merge(
+      payment_method_nonce: "fake-valid-debit-nonce",
+      store:true,
+    )
+    assert response = @gateway.authorize(@amount, @bank_account, options)
+    assert_equal true, response.test
+    assert_equal "1000 Approved", response.message
+    assert_success response
+  end
+
+  def test_successful_purchase_with_bank_account
+    options = @options.merge(
+      payment_method_nonce: "fake-valid-debit-nonce",
+    )
+    assert response = @gateway.purchase(@amount, @bank_account, options)
+    assert_success response
+  end
+
 
   def test_successful_authorize_with_nil_and_empty_billing_address_options
     credit_card = credit_card('5105105105105100')

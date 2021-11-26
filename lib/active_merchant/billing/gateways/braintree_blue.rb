@@ -839,9 +839,12 @@ module ActiveMerchant #:nodoc:
           device_data: options[:device_data],
         }
 
-        get_customer =  @braintree_gateway.customer.create(account_data)
-
-        verify_bank_account(parameters, account, options.merge(customer_id: get_customer.customer.id))
+        if options[:store]
+          get_customer =  @braintree_gateway.customer.create(account_data)
+          verify_bank_account(parameters, account, options.merge(customer_id: get_customer.customer.id))
+        else
+          parameters[:payment_method_nonce] = account
+        end
       end
 
       def verify_bank_account(parameters, account, options)
