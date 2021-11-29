@@ -11,6 +11,15 @@ class BraintreeBlueTest < Test::Unit::TestCase
       test: true
     )
 
+    @bank_account = check(account_number: '4012000033330125', routing_number: '011000015')
+
+    @options = {
+      test:true,
+      order_id: '1',
+      billing_address: address(country_name: 'Canada'),
+      description: 'Store Purchase'
+    }
+
     @internal_gateway = @gateway.instance_variable_get(:@braintree_gateway)
   end
 
@@ -1299,6 +1308,48 @@ class BraintreeBlueTest < Test::Unit::TestCase
 
     @gateway.purchase(100, credit_card('41111111111111111111'), { test: true, order_id: '1', stored_credential: { initiator: 'merchant', reason_type: 'moto', initial_transaction: true } })
   end
+
+
+  def test_successful_authorize_bank_account
+    options = @options.merge(
+      payment_method_nonce: "fake-valid-debit-nonce",
+    )
+
+    Braintree::TransactionGateway.any_instance.expects(:sale).returns(braintree_result)
+    response = @gateway.authorize(0.01, @bank_account, options)
+    assert_equal 'transaction_id', response.authorization
+    assert_equal true, response.test
+    assert_success response
+  end
+
+  def test_successful_purchase_with_bank_account
+    Braintree::TransactionGateway.any_instance.expects(:sale).
+    returns(braintree_result)
+    options = @options.merge(
+      payment_method_nonce: "",
+      submit_for_settlement: true
+    )
+    response = @gateway.purchase(0.01, @bank_account, @options)
+    assert_equal 'transaction_id', response.authorization
+    assert_equal true, response.test
+    assert_success response
+  end
+
+  def test_successful_authorize_bank_account_without_customer
+    options = @options.merge(
+      payment_method_nonce: "fake-valid-debit-nonce",
+    )
+    Braintree::TransactionGateway.
+      any_instance.
+      expects(:sale).
+      with(Not(has_key(:customer))).
+      returns(braintree_result)
+
+      response = @gateway.authorize(0.01, @bank_account, options)
+      assert_equal true, response.test
+      assert_success response
+  end
+
 
   private
 

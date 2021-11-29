@@ -843,7 +843,7 @@ module ActiveMerchant #:nodoc:
           get_customer =  @braintree_gateway.customer.create(account_data)
           verify_bank_account(parameters, account, options.merge(customer_id: get_customer.customer.id))
         else
-          parameters[:payment_method_nonce] = account
+          parameters[:payment_method_nonce] =  parameters[:payment_method_nonce] || account
         end
       end
 
