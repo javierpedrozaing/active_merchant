@@ -14,7 +14,8 @@ module ActiveMerchant #:nodoc:
       UPDATE_INTENT_ATTRIBUTES = %i[description statement_descriptor_suffix statement_descriptor receipt_email setup_future_usage]
       DEFAULT_API_VERSION = '2019-05-16'
 
-      def create_intent(money, payment_method, options = {})
+      def create_intent(money, payment_method, options = {})        
+
         post = {}
         add_amount(post, money, options, true)
         add_capture_method(post, options)
@@ -177,11 +178,43 @@ module ActiveMerchant #:nodoc:
       def store(payment_method, options = {})
         params = {}
         post = {}
-
+        
         # If customer option is provided, create a payment method and attach to customer id
         # Otherwise, create a customer, then attach
-        if payment_method.is_a?(StripePaymentToken) || payment_method.is_a?(ActiveMerchant::Billing::CreditCard)
-          result = add_payment_method_token(params, payment_method, options)
+       if payment_method.is_a?(NetworkTokenizationCreditCard)
+          stripe_token = get_stripe_token(payment_method, options)          
+          stripe_payment_token = StripeGateway::StripePaymentToken.new(stripe_token.params['token']['id'])
+          
+          if options[:customer]
+            customer_id = options[:customer]
+          else
+            post[:description] = options[:description] if options[:description]
+            post[:email] = options[:email] if options[:email]
+            options = format_idempotency_key(options, 'customer')
+            customer = commit(:post, 'customers', post, options)
+            customer_id = customer.params['id']
+          end
+          options = format_idempotency_key(options, 'attach')
+          attach_parameters = { 
+            customer: customer_id,
+          }
+          attach_parameters[:validate] = options[:validate] unless options[:validate].nil?
+          options = options.merge(card: {
+            token: stripe_payment_token.payment_data
+          })
+          
+          params[:payment_method] = create_payment_method(payment_method, options).params["id"]
+          require "debug"
+          commit(:post, "payment_methods/#{params[:payment_method]}/attach", attach_parameters, options)
+          #options = options.merge(post)
+          
+          #result_payment_intent = createPaymentMethodIntent(params, payment_method, stripe_payment_token.payment_data)          
+          #return result_payment_intent if result_payment_intent.is_a?(ActiveMerchant::Billing::Response)
+       
+       elsif payment_method.is_a?(StripePaymentToken) || payment_method.is_a?(ActiveMerchant::Billing::CreditCard)
+
+          result = add_payment_method_token(post, payment_method, options)
+                    
           return result if result.is_a?(ActiveMerchant::Billing::Response)
 
           if options[:customer]
@@ -196,10 +229,39 @@ module ActiveMerchant #:nodoc:
           options = format_idempotency_key(options, 'attach')
           attach_parameters = { customer: customer_id }
           attach_parameters[:validate] = options[:validate] unless options[:validate].nil?
+          
           commit(:post, "payment_methods/#{params[:payment_method]}/attach", attach_parameters, options)
+        
         else
           super(payment_method, options)
         end
+      end
+
+      def createPaymentMethodIntent(params, payment, store_token)
+        
+        post ={
+          amount: payment[:amount],
+          currency: payment[:currency],
+          confirm: true,
+          capture_method: "manual",          
+          payment_method_data: {
+            "type" => "card",
+            "card" => {
+              "token" => store_token
+            }
+          }
+        }
+
+        ## create payment intent
+        payment_intent_response = api_request(:post, "payment_intents", post, {})           
+        
+        if payment_intent_response["status"] == "requires_capture"          
+
+          payment_intent_response = commit(:post, "payment_intents/#{payment_intent_response["id"]}/capture", nil, {})
+        end
+        
+        return payment_intent_response
+        
       end
 
       def unstore(identification, options = {}, deprecated_options = {})
@@ -261,15 +323,65 @@ module ActiveMerchant #:nodoc:
         post[:return_url] = options[:return_url] if options[:return_url]
       end
 
-      def add_payment_method_token(post, payment_method, options)
+      def add_payment_method_token(post, payment_method, options)        
         case payment_method
+        when NetworkTokenizationCreditCard                    
+          raise "Direct Apple Pay and Google Pay transactions are not supported. Those payment methods must be stored before use."
+          #store(stripe_payment_token, options)
+          
+          #params = {source: stripe_token.params['token']['id']}
         when StripePaymentToken
-          post[:payment_method] = payment_method.payment_data['id']
+          post[:payment_method] = payment_method
         when String
           extract_token_from_string_and_maybe_add_customer_id(post, payment_method)
         when ActiveMerchant::Billing::CreditCard
           get_payment_method_data_from_card(post, payment_method, options)
         end
+      end
+
+      def get_stripe_token(payment, options)
+        ## Create stripe token
+        #curl'https://api.stripe.com/v1/tokens'
+        tokenization_method = 'android_pay'
+          if payment.source == 'apple_pay'
+            tokenization_method = 'apple_pay'
+          end
+          post ={
+            card: {
+              number: payment.number,
+              exp_month: payment.month,
+              exp_year: payment.year,
+              tokenization_method: tokenization_method,
+              eci: payment.eci,
+              cryptogram: 'reddelicious',
+            }
+          }
+        token_response = api_request(:post, "tokens", post, {})
+        
+        success = token_response['error'].nil?
+
+        if success && token_response['id']
+          Response.new(success, nil, token: token_response)
+        else
+          Response.new(success, token_response['error']['message'])
+        end
+      end
+
+      def api_request2(method, endpoint, parameters = nil, options = {})
+        raw_response = response = nil
+        begin   
+          p raw_response =   raw_ssl_request(method, self.live_url + endpoint, post_data(parameters), headers(options)).body
+          response = parse(raw_response)
+          p response['id']
+
+
+        rescue ResponseError => e
+          raw_response = e.response.body
+          response = response_error(raw_response)
+        rescue JSON::ParserError
+          response = json_error(raw_response)
+        end
+        response
       end
 
       def extract_token_from_string_and_maybe_add_customer_id(post, payment_method)

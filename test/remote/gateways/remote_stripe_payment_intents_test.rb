@@ -36,14 +36,32 @@ class RemoteStripeIntentsTest < Test::Unit::TestCase
       month: 10,
       year: 2028)
     @destination_account = fixtures(:stripe_destination)[:stripe_user_id]
+
+    @google_pay = network_tokenization_credit_card('4111111111111111',
+      payment_cryptogram: 'EHuWW9PiBkWvqE5juRwDzAUFBAk=',
+      month: '01',
+      year: '2024',
+      source: :google_pay,
+      transaction_id: '123456789',
+      eci: '05')
+
+     @apple_pay = network_tokenization_credit_card('4111111111111111',
+      payment_cryptogram: 'EHuWW9PiBkWvqE5juRwDzAUFBAk=',
+      month: '01',
+      year: '2024',
+      source: :apple_pay,
+      transaction_id: '123456789',
+      eci: '05')
   end
+
+  
 
   def test_authorization_and_void
     options = {
       currency: 'GBP',
       customer: @customer
     }
-    assert authorization = @gateway.authorize(@amount, @visa_payment_method, options)
+    assert authorization = @gateway.authorize(@amount, @visa_payment_method, options)    
 
     assert_equal 'requires_capture', authorization.params['status']
     refute authorization.params.dig('charges', 'data')[0]['captured']
@@ -51,6 +69,73 @@ class RemoteStripeIntentsTest < Test::Unit::TestCase
     assert void = @gateway.void(authorization.authorization)
     assert_success void
   end
+
+  def test_authorization_and_void_with_apple_pay
+    options = {
+      currency: 'GBP',
+      customer: @customer
+    }
+    assert authorization = @gateway.authorize(@amount, @apple_pay, options)    
+    require "debug"
+    assert_equal 'requires_capture', authorization.params['status']
+    refute authorization.params.dig('charges', 'data')[0]['captured']
+
+    assert void = @gateway.void(authorization.authorization)
+    assert_success void
+  end
+
+  def test_authorization_and_void_with_google_pay
+    options = {
+      currency: 'GBP',
+      customer: @customer
+    }
+    assert authorization = @gateway.authorize(@amount, @google_pay, options)    
+
+    assert_equal 'requires_capture', authorization.params['status']
+    refute authorization.params.dig('charges', 'data')[0]['captured']
+
+    assert void = @gateway.void(authorization.authorization)
+    assert_success void
+  end
+
+
+  def test_successful_purchase_with_apple_pay
+    options = {
+      currency: 'GBP',
+      customer: @customer
+    }
+    assert purchase = @gateway.purchase(@amount, @apple_pay, options)    
+
+    assert_equal 'succeeded', purchase.params['status']
+    assert purchase.params.dig('charges', 'data')[0]['captured']
+  end
+
+  def test_successful_purchase_with_google_pay
+    options = {
+      currency: 'GBP',
+      customer: @customer
+    }
+    assert purchase = @gateway.purchase(@amount, @google_pay, options)    
+
+    assert_equal 'succeeded', purchase.params['status']
+    assert purchase.params.dig('charges', 'data')[0]['captured']
+  end
+
+
+  def test_successful_store_purchase_apple_pay
+    options = {
+      currency: 'GBP'
+    }
+    assert store = @gateway.store(@apple_pay, options)
+    assert store.params['customer'].start_with?('cus_')
+
+    assert purchase = @gateway.purchase(@amount, store.authorization, options)
+    assert 'succeeded', purchase.params['status']
+
+    assert unstore = @gateway.unstore(store.authorization)
+    assert_nil unstore.params['customer']
+  end
+  
 
   def test_successful_purchase
     options = {
